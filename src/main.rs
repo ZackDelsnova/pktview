@@ -1,10 +1,19 @@
 use pnet::datalink;
-use pnet::packet::{ Packet, ethernet::EthernetPacket, ip::IpNextHeaderProtocols, ipv4::Ipv4Packet, tcp::TcpPacket, udp::UdpPacket };
+use pnet::packet::{ 
+    Packet, 
+    ethernet::{ EthernetPacket, EtherTypes },  
+    ipv4::Ipv4Packet,
+    ipv6::Ipv6Packet,
+    ip::IpNextHeaderProtocols,
+    tcp::TcpPacket, 
+    udp::UdpPacket 
+};
 use chrono::Local;
+use colored::*;
 
 fn main() {
-    println!("pktview - network packet visualizer ");
-    println!("------------------------------------");
+    println!("{}", "pktview - network packet visualizer ".bold().cyan());
+    println!("{}", "------------------------------------".cyan());
 
     // get all network interface
     let interfaces = datalink::interfaces();
@@ -21,10 +30,11 @@ fn main() {
 
     let interface = interfaces.get(choice).expect("invalid interface index");
 
-    println!("\ncapturing on interface :{}\n", interface.name);
+    println!("\n{} {}\n",
+        "capturing on interface :{}\n".green(), interface.name.yellow());
 
     // create channel to receive
-    let (mut tx, mut rx) = match datalink::channel(interface, Default::default()) {
+    let (_tx, mut rx) = match datalink::channel(interface, Default::default()) {
         Ok(datalink::Channel::Ethernet(tx, rx)) => (tx, rx),
         Ok(_) => panic!("unhandled channel type"),
         Err(e) => panic!("error creating datalink channel: {}", e),
@@ -34,21 +44,30 @@ fn main() {
         match rx.next() {
             Ok(packet) => {
                 let eth = EthernetPacket::new(packet).unwrap();
-                let timestamp = Local::now().format("%H:%M:%S%.3f");
+                let ts = Local::now().format("%H:%M:%S%.3f");
 
                 match eth.get_ethertype() {
-                    pnet::packet::ethernet::EtherTypes::Ipv4 => {
+                    EtherTypes::Ipv4 => {
                         if let Some(ipv4) = Ipv4Packet::new(eth.payload()) {
                             let src = ipv4.get_source();
                             let dst = ipv4.get_destination();
                             let proto = ipv4.get_next_level_protocol();
 
-                            print!("[{}] {} -> {} ({:?})", timestamp, src, dst, proto);
+                            let prefix = format!("[{}]", ts).dimmed();
 
                             match proto {
                                 IpNextHeaderProtocols::Tcp => {
                                     if let Some(tcp) = TcpPacket::new(ipv4.payload()) {
-                                        println!(" | tcp {} -> {}", tcp.get_source(), tcp.get_destination());
+                                        println!(
+                                            "{} {}:{} {} {}:{} {}",
+                                            prefix,
+                                            src.to_string().blue(),
+                                            tcp.get_source().to_string().bold(),
+                                            "->".bright_black(),
+                                            dst.to_string().red(),
+                                            tcp.get_destination().to_string().bold(),
+                                            "[TCP]".green()
+                                        );
                                     } else {
                                         println!();
                                     }
@@ -56,13 +75,43 @@ fn main() {
 
                                 IpNextHeaderProtocols::Udp => {
                                     if let Some(udp) = UdpPacket::new(ipv4.payload()) {
-                                        println!(" | udp {} -> {}", udp.get_source(), udp.get_destination());
+                                        println!(
+                                            "{} {}:{} {} {}:{} {}",
+                                            prefix,
+                                            src.to_string().blue(),
+                                            udp.get_source().to_string().bold(),
+                                            "->".bright_black(),
+                                            dst.to_string().red(),
+                                            udp.get_destination().to_string().bold(),
+                                            "[UDP]".green()
+                                        );
                                     } else {
                                         println!();
                                     }
                                 }
-                                _ => println!(),
+                                _ => println!(
+                                    "{} {} {} {} {}",
+                                    prefix,
+                                    src.to_string().blue(),
+                                    "->".bright_black(),
+                                    dst.to_string().red(),
+                                    "[IPv4 OTHER]".dimmed()
+                                ),
                             }
+                        }
+                    }
+                    EtherTypes::Ipv6 => {
+                        if let Some(ipv6) = Ipv6Packet::new(eth.payload()) {
+                            let src = ipv6.get_source();
+                            let dst = ipv6.get_destination();
+                            println!(
+                                "{} {} {} {} {}",
+                                format!("[{}]", ts).dimmed(),
+                                src.to_string().blue(),
+                                "->".bright_black(),
+                                dst.to_string().red(),
+                                "[IPv6]".purple()
+                            )
                         }
                     }
                     _ => {}
